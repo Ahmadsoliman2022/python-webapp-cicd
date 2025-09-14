@@ -52,7 +52,7 @@ jobs:
       - name: Test unit tests in container
         run: |
           docker run --rm ${{ env.APPLICATION_NAME }}:latest python -m unittest --verbose --failfast
-        run: docker load -i ${{ env.APPLICATION_NAME }}.tar
-      - name: Test unit tests in container
+      
+      
         run: |
           docker run --rm ${{ env.APPLICATION_NAME }}:latest python -m unittest --verbose --failfast
