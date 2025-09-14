@@ -26,22 +26,29 @@ jobs:
   build_image_locally:
     needs: [lint]
     runs-on: ubuntu-latest
-    outputs:
-      image_name: ${{ steps.build_tag.outputs.image_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Build and tag local Docker image
-        id: build_tag
-        run: |
-          IMAGE_NAME="local/${{ env.APPLICATION_NAME }}:latest"
-          docker build -t "$IMAGE_NAME" .
-          echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+        run: docker build -t ${{ env.APPLICATION_NAME }}:latest .
+      - name: Save Docker image to a file
+        run: docker save -o ${{ env.APPLICATION_NAME }}.tar ${{ env.APPLICATION_NAME }}:latest
+      - name: Upload Docker image as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-artifact
+          path: ${{ env.APPLICATION_NAME }}.tar
 
   test_container:
     needs: [build_image_locally]
     runs-on: ubuntu-latest
     steps:
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-artifact
+      - name: Load Docker image from file
+        run: docker load -i ${{ env.APPLICATION_NAME }}.tar
       - name: Test unit tests in container
         run: |
-          docker run --rm "local/${{ env.APPLICATION_NAME }}:latest" python -m unittest --verbose --failfast
+          docker run --rm ${{ env.APPLICATION_NAME }}:latest python -m unittest --verbose --failfast
