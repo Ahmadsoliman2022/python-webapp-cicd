@@ -1,0 +1,74 @@
+name: Pipeline
+
+on: [push]
+env:
+  APPLICATION_NAME: app2
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install requirements
+        run: pip install --quiet --requirement requirements.txt
+      - name: Lint code
+        run: |
+          flake8 --ignore=E501,E231 *.py
+          pylint --disable=C0301 *.py
+      - name: Run unit tests
+        run: python -m unittest --verbose --failfast
+
+  build_image_locally:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build and tag local Docker image
+        run: docker build -t ${{ env.APPLICATION_NAME }}:latest .
+      - name: Save Docker image to a file
+        run: docker save -o ${{ env.APPLICATION_NAME }}.tar ${{ env.APPLICATION_NAME }}:latest
+      - name: Upload Docker image as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-artifact
+          path: ${{ env.APPLICATION_NAME }}.tar
+
+  test_container:
+    needs: [build_image_locally]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-artifact
+      - name: Load Docker image from file
+        run: docker load -i ${{ env.APPLICATION_NAME }}.tar
+      - name: Test unit tests in container
+        run: |
+          docker run --rm ${{ env.APPLICATION_NAME }}:latest python -m unittest --verbose --failfast
+
+  local_deploy:
+    needs: [test_container]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-artifact
+      - name: Load Docker image from file
+        run: docker load -i ${{ env.APPLICATION_NAME }}.tar
+      - name: Run containerized app in detached mode
+        run: docker run --detach --publish 8080:8080 ${{ env.APPLICATION_NAME }}:latest
+      - name: Wait for service to start
+        run: sleep 5
+      - name: Verify service is running
+        run: curl --silent --fail http://localhost:8080/ || (echo "Service not running" && exit 1)
+      - name: Stop container
+        if: always()
+        run: docker stop $(docker ps -q --filter ancestor=${{ env.APPLICATION_NAME }}:latest)
